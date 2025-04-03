@@ -1,0 +1,286 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arbeitszeit Rechner</title>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            background-color: #f4f4f4;
+            margin: 0;
+        }
+        .container {
+            background-color: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            width: 90%;
+            max-width: 450px;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 25px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: bold;
+        }
+        input[type="time"],
+        input[type="number"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box; /* Include padding in width */
+            font-size: 1rem;
+        }
+         input[type="number"] {
+            /* Make number input slightly less wide to accomodate potential units text */
+             width: calc(100% - 70px); /* Adjust as needed */
+             display: inline-block; /* Allow text next to it */
+         }
+        .unit {
+             display: inline-block;
+             margin-left: 10px;
+             color: #555;
+         }
+
+        .output-group {
+            margin-top: 25px;
+            border-top: 1px solid #eee;
+            padding-top: 20px;
+        }
+        .output-group p {
+            margin: 12px 0;
+            font-size: 1.1rem;
+            color: #333;
+            display: flex;
+            justify-content: space-between; /* Align label and value */
+        }
+        .output-group p span:first-child {
+            font-weight: bold;
+            color: #555;
+            margin-right: 10px;
+        }
+         .output-group p span.value {
+             font-weight: bold;
+             text-align: right;
+         }
+        .overtime {
+            color: green !important;
+        }
+        .undertime {
+            color: red !important;
+        }
+         .info {
+             font-size: 0.9rem;
+             color: #777;
+             text-align: center;
+             margin-top: 20px;
+         }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Arbeitszeit Rechner</h1>
+
+        <div class="input-group">
+            <label for="startTime">Startzeit:</label>
+            <input type="time" id="startTime" value="07:30">
+        </div>
+
+        <div class="input-group">
+            <label for="breakMinutes">Pause (Minuten):</label>
+            <div>
+                <input type="number" id="breakMinutes" value="45" min="0">
+                <span class="unit">Minuten</span>
+            </div>
+        </div>
+
+        <div class="output-group">
+            <p>
+                <span>Aktuelle Uhrzeit:</span>
+                <span class="value" id="currentTime">--:--:--</span>
+            </p>
+            <p>
+                <span>Gearbeitete Zeit (netto):</span>
+                <span class="value" id="workedTime">--h --m</span>
+            </p>
+             <p>
+                <span>Differenz zu 7h:</span>
+                <span class="value" id="overtime">--h --m</span>
+            </p>
+            <p>
+                <span>7h erreicht um:</span>
+                <span class="value" id="targetTime">--:-- Uhr</span>
+            </p>
+        </div>
+         <p class="info">Die Berechnung wird automatisch jede Sekunde aktualisiert.</p>
+    </div>
+
+    <script>
+        // Get references to DOM elements
+        const startTimeInput = document.getElementById('startTime');
+        const breakMinutesInput = document.getElementById('breakMinutes');
+        const currentTimeDisplay = document.getElementById('currentTime');
+        const workedTimeDisplay = document.getElementById('workedTime');
+        const overtimeDisplay = document.getElementById('overtime');
+        const targetTimeDisplay = document.getElementById('targetTime');
+
+        // Target work duration: 7 hours in milliseconds
+        const TARGET_WORK_MS = 7 * 60 * 60 * 1000;
+        const NINE_AM_MINUTES = 9 * 60; // 9:00 AM in minutes from midnight
+
+        // Function to format milliseconds into hh:mm or +/- hh:mm
+        function formatDuration(ms, showSign = false) {
+            if (isNaN(ms)) return '--h --m';
+
+            const isNegative = ms < 0;
+            if (isNegative) ms = -ms;
+
+            const totalMinutes = Math.floor(ms / (60 * 1000));
+            const hours = Math.floor(totalMinutes / 60);
+            const minutes = totalMinutes % 60;
+
+            const sign = showSign ? (isNegative ? '-' : '+') : '';
+            return `${sign}${hours}h ${String(minutes).padStart(2, '0')}m`;
+        }
+
+        // Function to format a Date object into HH:MM
+        function formatTime(date) {
+             if (!(date instanceof Date) || isNaN(date)) return "--:--";
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${hours}:${minutes}`;
+        }
+
+         // Function to format a Date object into HH:MM:SS
+         function formatTimeWithSeconds(date) {
+             if (!(date instanceof Date) || isNaN(date)) return "--:--:--";
+             const hours = String(date.getHours()).padStart(2, '0');
+             const minutes = String(date.getMinutes()).padStart(2, '0');
+             const seconds = String(date.getSeconds()).padStart(2, '0');
+             return `${hours}:${minutes}:${seconds}`;
+         }
+
+        // Function to update default break time based on start time
+        function updateDefaultBreakTime() {
+            const startTimeValue = startTimeInput.value;
+            if (!startTimeValue) return; // Exit if no start time
+
+            const [startHours, startMinutes] = startTimeValue.split(':').map(Number);
+
+            // Basic validation
+            if (isNaN(startHours) || isNaN(startMinutes)) {
+                return;
+            }
+
+            const totalStartMinutes = startHours * 60 + startMinutes;
+
+            if (totalStartMinutes >= NINE_AM_MINUTES) { // 9:00 or later
+                breakMinutesInput.value = 30;
+            } else { // Before 9:00
+                breakMinutesInput.value = 45;
+            }
+        }
+
+        // Main calculation function
+        function calculateTimes() {
+            const now = new Date();
+            currentTimeDisplay.textContent = formatTimeWithSeconds(now);
+
+            // --- Get Input Values ---
+            const startTimeValue = startTimeInput.value; // "HH:MM"
+            // Ensure breakMinutes is read *after* potentially being updated by updateDefaultBreakTime
+            const breakMinutes = parseInt(breakMinutesInput.value, 10) || 0;
+
+            if (!startTimeValue) { // Handle case where start time is not set
+                workedTimeDisplay.textContent = '--h --m';
+                overtimeDisplay.textContent = '--h --m';
+                targetTimeDisplay.textContent = '--:-- Uhr';
+                overtimeDisplay.className = 'value'; // Reset class
+                return;
+            }
+
+            // --- Parse Start Time ---
+            const [startHours, startMinutes] = startTimeValue.split(':').map(Number);
+            // Add validation in case parsing failed somehow before this point
+            if (isNaN(startHours) || isNaN(startMinutes)) {
+                 console.error("Invalid start time format");
+                 // Optionally display an error to the user
+                 return;
+            }
+            const startTime = new Date(now); // Use today's date
+            startTime.setHours(startHours, startMinutes, 0, 0);
+
+            // --- Calculate Durations ---
+            let grossDurationMs = now.getTime() - startTime.getTime();
+            if (grossDurationMs < 0) grossDurationMs = 0; // Cannot work negative time
+
+            const breakMs = breakMinutes * 60 * 1000;
+            let netWorkedMs = grossDurationMs - breakMs;
+            if (netWorkedMs < 0) netWorkedMs = 0; // Net time cannot be negative
+
+            // --- Calculate Overtime/Undertime ---
+            const overtimeMs = netWorkedMs - TARGET_WORK_MS;
+
+            // --- Calculate Target Completion Time ---
+            // Ensure startTime is valid before calculation
+            const targetCompletionTime = !isNaN(startTime.getTime())
+                ? new Date(startTime.getTime() + TARGET_WORK_MS + breakMs)
+                : new Date(NaN); // Invalid date if start time was invalid
+
+
+            // --- Update Display ---
+            workedTimeDisplay.textContent = formatDuration(netWorkedMs);
+            overtimeDisplay.textContent = formatDuration(overtimeMs, true); // Show sign (+/-)
+
+             // Style overtime/undertime
+             overtimeDisplay.classList.remove('overtime', 'undertime'); // Remove existing classes
+             if (overtimeMs >= 0) {
+                 overtimeDisplay.classList.add('overtime');
+             } else {
+                 overtimeDisplay.classList.add('undertime');
+             }
+
+            targetTimeDisplay.textContent = `${formatTime(targetCompletionTime)} Uhr`;
+        }
+
+        // --- Event Listeners ---
+        // When start time changes: first update default break, then recalculate all
+        startTimeInput.addEventListener('input', () => {
+            updateDefaultBreakTime();
+            calculateTimes();
+        });
+
+        // When break time is manually changed: recalculate all
+        breakMinutesInput.addEventListener('input', calculateTimes);
+
+        // Recalculate every second for live update
+        const intervalID = setInterval(calculateTimes, 1000);
+
+        // Initial setup on page load
+        document.addEventListener('DOMContentLoaded', () => {
+             updateDefaultBreakTime(); // Set initial break based on default start time
+             calculateTimes(); // Perform initial calculation
+        });
+
+        // Optional: Clear interval when the page is unloaded (good practice)
+        // window.addEventListener('beforeunload', () => {
+        //     clearInterval(intervalID);
+        // });
+
+    </script>
+</body>
+</html>
