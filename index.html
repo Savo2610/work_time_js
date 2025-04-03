@@ -142,13 +142,27 @@
         const TARGET_WORK_MS = 7 * 60 * 60 * 1000;
         const NINE_AM_MINUTES = 9 * 60; // 9:00 AM in minutes from midnight
 
-        // German timezone options
-        const GERMAN_TIMEZONE = 'Europe/Berlin';
-        const GERMAN_LOCALE = 'de-DE';
+        // Get timezone offset in minutes for Germany (either CET or CEST)
+        // This function determines the correct offset for a specific date
+        function getGermanTimezoneOffsetMinutes(date) {
+            // Create a date string with the input date in Germany timezone
+            const dateString = date.toLocaleString('en-US', { timeZone: 'Europe/Berlin' });
+            // Parse that date string back to a Date object (in local timezone)
+            const germanDate = new Date(dateString);
+            
+            // Calculate the difference in minutes between the original date and the German date
+            return (germanDate - date) / (60 * 1000);
+        }
 
-        // Function to get current time (without timezone adjustment yet)
-        function getCurrentTime() {
-            return new Date();
+        // Function to get current date adjusted to German timezone
+        function getCurrentGermanTime() {
+            const now = new Date();
+            // Get the offset in minutes between local timezone and German timezone
+            const offsetMinutes = getGermanTimezoneOffsetMinutes(now);
+            
+            // Create a new date by adding the offset
+            const germanTime = new Date(now.getTime() + offsetMinutes * 60 * 1000);
+            return germanTime;
         }
 
         // Function to format milliseconds into hh:mm or +/- hh:mm
@@ -169,26 +183,18 @@
         // Function to format a Date object into HH:MM
         function formatTime(date) {
             if (!(date instanceof Date) || isNaN(date)) return "--:--";
-            
-            // Use German locale formatting
-            return new Intl.DateTimeFormat(GERMAN_LOCALE, {
-                hour: '2-digit',
-                minute: '2-digit',
-                timeZone: GERMAN_TIMEZONE
-            }).format(date);
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            return `${hours}:${minutes}`;
         }
 
         // Function to format a Date object into HH:MM:SS
         function formatTimeWithSeconds(date) {
             if (!(date instanceof Date) || isNaN(date)) return "--:--:--";
-            
-            // Use German locale formatting
-            return new Intl.DateTimeFormat(GERMAN_LOCALE, {
-                hour: '2-digit',
-                minute: '2-digit',
-                second: '2-digit',
-                timeZone: GERMAN_TIMEZONE
-            }).format(date);
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            return `${hours}:${minutes}:${seconds}`;
         }
 
         // Function to update default break time based on start time
@@ -214,12 +220,11 @@
 
         // Main calculation function
         function calculateTimes() {
-            const now = getCurrentTime();
+            const now = getCurrentGermanTime();
             currentTimeDisplay.textContent = formatTimeWithSeconds(now);
 
             // --- Get Input Values ---
             const startTimeValue = startTimeInput.value; // "HH:MM"
-            // Ensure breakMinutes is read *after* potentially being updated by updateDefaultBreakTime
             const breakMinutes = parseInt(breakMinutesInput.value, 10) || 0;
 
             if (!startTimeValue) { // Handle case where start time is not set
@@ -232,14 +237,13 @@
 
             // --- Parse Start Time ---
             const [startHours, startMinutes] = startTimeValue.split(':').map(Number);
-            // Add validation in case parsing failed somehow before this point
+            // Add validation in case parsing failed
             if (isNaN(startHours) || isNaN(startMinutes)) {
                 console.error("Invalid start time format");
-                // Optionally display an error to the user
                 return;
             }
             
-            // Create start time in German timezone using today's date
+            // Create start time using today's date in German timezone
             const startTime = new Date(now);
             startTime.setHours(startHours, startMinutes, 0, 0);
 
@@ -255,7 +259,6 @@
             const overtimeMs = netWorkedMs - TARGET_WORK_MS;
 
             // --- Calculate Target Completion Time ---
-            // Ensure startTime is valid before calculation
             const targetCompletionTime = !isNaN(startTime.getTime())
                 ? new Date(startTime.getTime() + TARGET_WORK_MS + breakMs)
                 : new Date(NaN); // Invalid date if start time was invalid
