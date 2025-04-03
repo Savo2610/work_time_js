@@ -142,6 +142,15 @@
         const TARGET_WORK_MS = 7 * 60 * 60 * 1000;
         const NINE_AM_MINUTES = 9 * 60; // 9:00 AM in minutes from midnight
 
+        // German timezone options
+        const GERMAN_TIMEZONE = 'Europe/Berlin';
+        const GERMAN_LOCALE = 'de-DE';
+
+        // Function to get current time in German timezone
+        function getCurrentGermanTime() {
+            return new Date(new Date().toLocaleString(GERMAN_LOCALE, {timeZone: GERMAN_TIMEZONE}));
+        }
+
         // Function to format milliseconds into hh:mm or +/- hh:mm
         function formatDuration(ms, showSign = false) {
             if (isNaN(ms)) return '--h --m';
@@ -159,20 +168,28 @@
 
         // Function to format a Date object into HH:MM
         function formatTime(date) {
-             if (!(date instanceof Date) || isNaN(date)) return "--:--";
-            const hours = String(date.getHours()).padStart(2, '0');
-            const minutes = String(date.getMinutes()).padStart(2, '0');
-            return `${hours}:${minutes}`;
+            if (!(date instanceof Date) || isNaN(date)) return "--:--";
+            
+            // Use German locale formatting
+            return new Intl.DateTimeFormat(GERMAN_LOCALE, {
+                hour: '2-digit',
+                minute: '2-digit',
+                timeZone: GERMAN_TIMEZONE
+            }).format(date);
         }
 
-         // Function to format a Date object into HH:MM:SS
-         function formatTimeWithSeconds(date) {
-             if (!(date instanceof Date) || isNaN(date)) return "--:--:--";
-             const hours = String(date.getHours()).padStart(2, '0');
-             const minutes = String(date.getMinutes()).padStart(2, '0');
-             const seconds = String(date.getSeconds()).padStart(2, '0');
-             return `${hours}:${minutes}:${seconds}`;
-         }
+        // Function to format a Date object into HH:MM:SS
+        function formatTimeWithSeconds(date) {
+            if (!(date instanceof Date) || isNaN(date)) return "--:--:--";
+            
+            // Use German locale formatting
+            return new Intl.DateTimeFormat(GERMAN_LOCALE, {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+                timeZone: GERMAN_TIMEZONE
+            }).format(date);
+        }
 
         // Function to update default break time based on start time
         function updateDefaultBreakTime() {
@@ -197,7 +214,7 @@
 
         // Main calculation function
         function calculateTimes() {
-            const now = new Date();
+            const now = getCurrentGermanTime();
             currentTimeDisplay.textContent = formatTimeWithSeconds(now);
 
             // --- Get Input Values ---
@@ -217,11 +234,13 @@
             const [startHours, startMinutes] = startTimeValue.split(':').map(Number);
             // Add validation in case parsing failed somehow before this point
             if (isNaN(startHours) || isNaN(startMinutes)) {
-                 console.error("Invalid start time format");
-                 // Optionally display an error to the user
-                 return;
+                console.error("Invalid start time format");
+                // Optionally display an error to the user
+                return;
             }
-            const startTime = new Date(now); // Use today's date
+            
+            // Create start time in German timezone using today's date
+            const startTime = new Date(now);
             startTime.setHours(startHours, startMinutes, 0, 0);
 
             // --- Calculate Durations ---
@@ -241,18 +260,17 @@
                 ? new Date(startTime.getTime() + TARGET_WORK_MS + breakMs)
                 : new Date(NaN); // Invalid date if start time was invalid
 
-
             // --- Update Display ---
             workedTimeDisplay.textContent = formatDuration(netWorkedMs);
             overtimeDisplay.textContent = formatDuration(overtimeMs, true); // Show sign (+/-)
 
-             // Style overtime/undertime
-             overtimeDisplay.classList.remove('overtime', 'undertime'); // Remove existing classes
-             if (overtimeMs >= 0) {
-                 overtimeDisplay.classList.add('overtime');
-             } else {
-                 overtimeDisplay.classList.add('undertime');
-             }
+            // Style overtime/undertime
+            overtimeDisplay.classList.remove('overtime', 'undertime'); // Remove existing classes
+            if (overtimeMs >= 0) {
+                overtimeDisplay.classList.add('overtime');
+            } else {
+                overtimeDisplay.classList.add('undertime');
+            }
 
             targetTimeDisplay.textContent = `${formatTime(targetCompletionTime)} Uhr`;
         }
@@ -272,15 +290,14 @@
 
         // Initial setup on page load
         document.addEventListener('DOMContentLoaded', () => {
-             updateDefaultBreakTime(); // Set initial break based on default start time
-             calculateTimes(); // Perform initial calculation
+            updateDefaultBreakTime(); // Set initial break based on default start time
+            calculateTimes(); // Perform initial calculation
         });
 
         // Optional: Clear interval when the page is unloaded (good practice)
         // window.addEventListener('beforeunload', () => {
         //     clearInterval(intervalID);
         // });
-
     </script>
 </body>
 </html>
