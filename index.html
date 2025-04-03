@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Arbeitszeit Rechner</title>
     <style>
-        /* CSS bleibt unverändert - hier zur Kürze weggelassen, bitte den vorherigen Code verwenden */
         body {
             font-family: sans-serif;
             display: flex;
@@ -90,11 +89,19 @@
              text-align: center;
              margin-top: 20px;
          }
+         .error { /* Style for error messages */
+             color: red;
+             font-size: 0.9rem;
+             margin-top: 10px;
+             text-align: center;
+             display: none; /* Hide by default */
+             font-weight: bold;
+         }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>Arbeitszeit Rechner</h1>
+        <h1>Arbeitszeit Rechner (Zeitzone: Berlin)</h1>
 
         <div class="input-group">
             <label for="startTime">Startzeit:</label>
@@ -109,9 +116,11 @@
             </div>
         </div>
 
+         <div id="errorMessage" class="error"></div> <!-- Error message placeholder -->
+
         <div class="output-group">
             <p>
-                <span>Aktuelle Uhrzeit:</span>
+                <span>Aktuelle Uhrzeit (DE):</span>
                 <span class="value" id="currentTime">--:--:--</span>
             </p>
             <p>
@@ -123,7 +132,7 @@
                 <span class="value" id="overtime">--h --m</span>
             </p>
             <p>
-                <span>7h erreicht um:</span>
+                <span>7h erreicht um (DE):</span>
                 <span class="value" id="targetTime">--:-- Uhr</span>
             </p>
         </div>
@@ -138,167 +147,245 @@
         const workedTimeDisplay = document.getElementById('workedTime');
         const overtimeDisplay = document.getElementById('overtime');
         const targetTimeDisplay = document.getElementById('targetTime');
+        const errorMessageDiv = document.getElementById('errorMessage');
 
-        // Target work duration: 7 hours in milliseconds
+        // Configuration
         const TARGET_WORK_MS = 7 * 60 * 60 * 1000;
-        const NINE_AM_MINUTES = 9 * 60; // 9:00 AM in minutes from midnight
-        const GERMAN_TIMEZONE = 'Europe/Berlin'; // Define the target timezone
+        const NINE_AM_MINUTES = 9 * 60;
+        const GERMAN_TIMEZONE = 'Europe/Berlin';
+
+        // Helper Function to display errors
+        function showError(message) {
+            errorMessageDiv.textContent = message;
+            errorMessageDiv.style.display = message ? 'block' : 'none';
+            // Clear results on error if message is not null
+            if (message) {
+                workedTimeDisplay.textContent = '--h --m';
+                overtimeDisplay.textContent = '--h --m';
+                targetTimeDisplay.textContent = '--:-- Uhr';
+                overtimeDisplay.className = 'value'; // Reset style class
+            }
+        }
+
+        // Helper Function to get UTC offset string like "+02:00" for a specific date/zone
+        function getOffsetString(date, timeZone) {
+            try {
+                // Format the date in the target timezone using a locale that gives numeric offset info if possible.
+                // Unfortunately, direct reliable offset string (like +02:00) isn't guaranteed by Intl.DateTimeFormat across all browsers/locales.
+                // We calculate it by comparing the time in the zone vs UTC.
+                const utcDate = new Date(date.toLocaleString('en-US', { timeZone: 'UTC' }));
+                const tzDate = new Date(date.toLocaleString('en-US', { timeZone: timeZone }));
+                const offsetMinutes = (tzDate.getTime() - utcDate.getTime()) / (60 * 1000);
+
+                // Check if calculation resulted in NaN (can happen with invalid dates)
+                if (isNaN(offsetMinutes)) {
+                    throw new Error("Offset calculation resulted in NaN.");
+                }
+
+                // Format offset as +/-HH:MM
+                const sign = offsetMinutes >= 0 ? '+' : '-';
+                const absOffsetMinutes = Math.abs(offsetMinutes);
+                const offsetHours = String(Math.floor(absOffsetMinutes / 60)).padStart(2, '0');
+                const offsetMins = String(absOffsetMinutes % 60).padStart(2, '0');
+                return `${sign}${offsetHours}:${offsetMins}`;
+            } catch(e) {
+                 console.error("Error calculating offset string:", e);
+                 // Attempt a fallback using formatToParts if the above fails (more modern but potentially less supported in very old envs)
+                 try {
+                     const formatter = new Intl.DateTimeFormat('en', { timeZoneName: 'longOffset', timeZone: timeZone });
+                     const parts = formatter.formatToParts(date);
+                     const offsetPart = parts.find(part => part.type === 'timeZoneName');
+                     // Example offsetPart.value might be "GMT+02:00"
+                     if (offsetPart && offsetPart.value.includes('GMT')) {
+                         const match = offsetPart.value.match(/([+-]\d{2}:\d{2})/);
+                         if (match) return match[1];
+                     }
+                     // If fallback also fails
+                     showError("Fehler bei der Zeitzonen-Offset-Berechnung.");
+                     return null;
+                 } catch (e2) {
+                    console.error("Fallback offset calculation failed:", e2);
+                    showError("Fehler bei der Zeitzonen-Offset-Berechnung (Fallback fehlgeschlagen).");
+                    return null;
+                 }
+            }
+        }
+
 
         // Function to format milliseconds into hh:mm or +/- hh:mm
         function formatDuration(ms, showSign = false) {
             if (isNaN(ms)) return '--h --m';
-
             const isNegative = ms < 0;
             if (isNegative) ms = -ms;
-
             const totalMinutes = Math.floor(ms / (60 * 1000));
             const hours = Math.floor(totalMinutes / 60);
             const minutes = totalMinutes % 60;
-
             const sign = showSign ? (isNegative ? '-' : '+') : '';
             return `${sign}${hours}h ${String(minutes).padStart(2, '0')}m`;
         }
-
-        // --- Time Formatting Functions with Timezone ---
 
         // Function to format a Date object into HH:MM in the specified timezone
         function formatTime(date, timeZone) {
              if (!(date instanceof Date) || isNaN(date)) return "--:--";
              try {
-                // Use Intl.DateTimeFormat for reliable timezone formatting
-                return new Intl.DateTimeFormat('de-DE', {
-                    timeZone: timeZone,
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    hour12: false // Use 24-hour format
-                }).format(date);
-             } catch (e) {
-                 console.error("Error formatting time:", e);
-                 // Fallback or simpler formatting if Intl fails (less likely)
-                 const hours = String(date.getHours()).padStart(2, '0'); // May be incorrect timezone
-                 const minutes = String(date.getMinutes()).padStart(2, '0');
-                 return `${hours}:${minutes} (TZ-Error)`;
-             }
+                return new Intl.DateTimeFormat('de-DE', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false }).format(date);
+             } catch (e) { console.error("Error formatting time:", e); return "--:-- (TZ Err)"; }
         }
 
          // Function to format a Date object into HH:MM:SS in the specified timezone
          function formatTimeWithSeconds(date, timeZone) {
              if (!(date instanceof Date) || isNaN(date)) return "--:--:--";
              try {
-                 return new Intl.DateTimeFormat('de-DE', {
-                    timeZone: timeZone,
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit',
-                    hour12: false // Use 24-hour format
-                }).format(date);
-             } catch (e) {
-                 console.error("Error formatting time with seconds:", e);
-                 const hours = String(date.getHours()).padStart(2, '0'); // May be incorrect timezone
-                 const minutes = String(date.getMinutes()).padStart(2, '0');
-                 const seconds = String(date.getSeconds()).padStart(2, '0');
-                 return `${hours}:${minutes}:${seconds} (TZ-Error)`;
-             }
+                 return new Intl.DateTimeFormat('de-DE', { timeZone, hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }).format(date);
+             } catch (e) { console.error("Error formatting time with seconds:", e); return "--:--:-- (TZ Err)"; }
          }
 
         // Function to update default break time based on start time
         function updateDefaultBreakTime() {
             const startTimeValue = startTimeInput.value;
             if (!startTimeValue) return;
-
             const [startHours, startMinutes] = startTimeValue.split(':').map(Number);
             if (isNaN(startHours) || isNaN(startMinutes)) return;
-
             const totalStartMinutes = startHours * 60 + startMinutes;
             breakMinutesInput.value = (totalStartMinutes >= NINE_AM_MINUTES) ? 30 : 45;
         }
 
         // Main calculation function
         function calculateTimes() {
-            // IMPORTANT: new Date() creates a date object representing the current moment.
-            // Its internal value is UTC milliseconds. Calculations based on getTime() are timezone-agnostic.
-            // Formatting functions will convert this moment to the desired timezone string.
-            const now = new Date();
+            try {
+                showError(null); // Clear previous errors
+                const now = new Date(); // Current moment (UTC milliseconds internally)
+                currentTimeDisplay.textContent = formatTimeWithSeconds(now, GERMAN_TIMEZONE);
 
-            // Display current time formatted for Germany
-            currentTimeDisplay.textContent = formatTimeWithSeconds(now, GERMAN_TIMEZONE);
+                // --- Get Input Values ---
+                const startTimeValue = startTimeInput.value;
+                const breakMinutes = parseInt(breakMinutesInput.value, 10) || 0;
 
-            // --- Get Input Values ---
-            const startTimeValue = startTimeInput.value;
-            const breakMinutes = parseInt(breakMinutesInput.value, 10) || 0;
+                if (!startTimeValue) {
+                    // Don't show error constantly, just clear outputs
+                    workedTimeDisplay.textContent = '--h --m';
+                    overtimeDisplay.textContent = '--h --m';
+                    targetTimeDisplay.textContent = '--:-- Uhr';
+                    overtimeDisplay.className = 'value';
+                    return;
+                }
 
-            if (!startTimeValue) {
-                workedTimeDisplay.textContent = '--h --m';
-                overtimeDisplay.textContent = '--h --m';
-                targetTimeDisplay.textContent = '--:-- Uhr';
-                overtimeDisplay.className = 'value';
-                return;
-            }
+                // --- Construct Start Time correctly in Target Timezone ---
+                const [startHours, startMinutes] = startTimeValue.split(':').map(Number);
+                 if (isNaN(startHours) || isNaN(startMinutes) || startHours < 0 || startHours > 23 || startMinutes < 0 || startMinutes > 59) {
+                      showError("Ungültige Startzeit.");
+                      return;
+                 }
 
-            // --- Parse Start Time ---
-            // We create the start time based on today's date and the input HH:MM.
-            // Crucially, setHours/setMinutes operate in the *browser's local timezone*.
-            // However, the duration calculation (now.getTime() - startTime.getTime())
-            // works correctly because both `now` and `startTime` are based on the
-            // same browser clock interpretation. The difference in milliseconds is universal.
-            const [startHours, startMinutes] = startTimeValue.split(':').map(Number);
-             if (isNaN(startHours) || isNaN(startMinutes)) {
-                 console.error("Invalid start time format in calculateTimes");
-                 // Clear outputs if start time is invalid during calculation
+                // 1. Get today's date parts (Y, M, D) in GERMAN_TIMEZONE using Intl.DateTimeFormat
+                 const datePartsFormatter = new Intl.DateTimeFormat('en-CA', { // Use locale that gives YYYY-MM-DD
+                    timeZone: GERMAN_TIMEZONE,
+                    year: 'numeric', month: '2-digit', day: '2-digit'
+                 });
+                 const formattedDate = datePartsFormatter.format(now); // Gets "YYYY-MM-DD" in target timezone
+
+                // 2. Format the input time consistently
+                const timeString = `${String(startHours).padStart(2, '0')}:${String(startMinutes).padStart(2, '0')}:00`;
+
+                // 3. Create a temporary date object representing the *approximate* start time in the target zone.
+                //    This is primarily used to determine the correct DST offset for that specific day and time.
+                //    Parsing a local date string *can* be tricky, but needed here to guess the offset.
+                const approxStartDateTimeForOffset = new Date(`${formattedDate}T${timeString}`);
+                 if (isNaN(approxStartDateTimeForOffset.getTime())) {
+                     // This might fail if the browser's default parsing is very strict or locale-dependent
+                     console.warn("Could not create approximate date for offset calculation from simple string. Trying Date.UTC approach.");
+                     // Fallback: Try constructing with Date.UTC based on parts from target timezone
+                     const parts = datePartsFormatter.formatToParts(now).reduce((acc, part) => { acc[part.type] = part.value; return acc; }, {});
+                     const year = parseInt(parts.year);
+                     const month = parseInt(parts.month) -1; // Month is 0-indexed
+                     const day = parseInt(parts.day);
+                      // Use Date.UTC to build a timestamp assuming the parts are already correct for the target timezone
+                     // Note: This still doesn't directly give the offset easily without the getOffsetString logic.
+                      // For getOffsetString, we still need a Date object representing local wall-clock time.
+                      // Let's stick to the simpler approach first and rely on getOffsetString handling it.
+                      // If approxStartDateTimeForOffset fails, getOffsetString will likely fail too.
+                      showError("Konnte Datum für Offset-Berechnung nicht erstellen.");
+                      return;
+                 }
+
+
+                // 4. Get the UTC offset string (e.g., "+02:00") for Berlin *at that approximate start time*
+                const offsetString = getOffsetString(approxStartDateTimeForOffset, GERMAN_TIMEZONE);
+                 if (offsetString === null) { // Error occurred in getOffsetString
+                    // Error message already shown by helper
+                    return;
+                 }
+
+                // 5. Construct the full ISO 8601 date string with the correct offset
+                const isoStartTimeString = `${formattedDate}T${timeString}${offsetString}`;
+
+                // 6. Parse this ISO string - new Date() handles ISO strings with offsets reliably
+                const startTime = new Date(isoStartTimeString);
+                if (isNaN(startTime.getTime())) {
+                    console.error("Failed to parse ISO string:", isoStartTimeString);
+                    showError("Startzeit konnte nicht korrekt interpretiert werden (ISO Parse Fehler).");
+                    return;
+                }
+
+
+                // --- Calculate Durations (now using correct startTime UTC timestamp) ---
+                let grossDurationMs = now.getTime() - startTime.getTime();
+                if (grossDurationMs < 0) grossDurationMs = 0; // Cannot have negative duration if start is in future
+
+                const breakMs = breakMinutes * 60 * 1000;
+                let netWorkedMs = grossDurationMs - breakMs;
+                if (netWorkedMs < 0) netWorkedMs = 0; // Net time also cannot be negative
+
+                const overtimeMs = netWorkedMs - TARGET_WORK_MS;
+
+                // --- Calculate Target Completion Time ---
+                const targetCompletionTimestamp = startTime.getTime() + TARGET_WORK_MS + breakMs;
+                const targetCompletionTime = new Date(targetCompletionTimestamp);
+
+
+                // --- Update Display ---
+                workedTimeDisplay.textContent = formatDuration(netWorkedMs);
+                overtimeDisplay.textContent = formatDuration(overtimeMs, true); // Show sign
+
+                overtimeDisplay.classList.remove('overtime', 'undertime'); // Reset classes
+                if (overtimeMs >= 0) {
+                    overtimeDisplay.classList.add('overtime');
+                } else {
+                    overtimeDisplay.classList.add('undertime');
+                }
+
+                // Format target time using the target timezone
+                targetTimeDisplay.textContent = `${formatTime(targetCompletionTime, GERMAN_TIMEZONE)} Uhr`;
+
+            } catch (error) {
+                console.error("Error during calculation:", error);
+                showError(`Ein Fehler ist aufgetreten: ${error.message}`);
+                // Ensure outputs are cleared visually on unexpected errors
                  workedTimeDisplay.textContent = '--h --m';
                  overtimeDisplay.textContent = '--h --m';
                  targetTimeDisplay.textContent = '--:-- Uhr';
                  overtimeDisplay.className = 'value';
-                 return;
-             }
-            const startTime = new Date(now); // Start with today's date context
-            startTime.setHours(startHours, startMinutes, 0, 0); // Set HH:MM in browser's local TZ
-
-            // --- Calculate Durations (timezone-agnostic using getTime()) ---
-            let grossDurationMs = now.getTime() - startTime.getTime();
-            if (grossDurationMs < 0) grossDurationMs = 0;
-
-            const breakMs = breakMinutes * 60 * 1000;
-            let netWorkedMs = grossDurationMs - breakMs;
-            if (netWorkedMs < 0) netWorkedMs = 0;
-
-            const overtimeMs = netWorkedMs - TARGET_WORK_MS;
-
-            // --- Calculate Target Completion Time ---
-            // startTime.getTime() gives UTC milliseconds for the start time (as interpreted by browser).
-            // Adding durations gives the target time also in UTC milliseconds.
-            const targetCompletionTimestamp = startTime.getTime() + TARGET_WORK_MS + breakMs;
-            const targetCompletionTime = new Date(targetCompletionTimestamp);
-
-            // --- Update Display ---
-            // Durations are independent of timezone display
-            workedTimeDisplay.textContent = formatDuration(netWorkedMs);
-            overtimeDisplay.textContent = formatDuration(overtimeMs, true);
-
-             // Style overtime/undertime
-             overtimeDisplay.classList.remove('overtime', 'undertime');
-             if (overtimeMs >= 0) {
-                 overtimeDisplay.classList.add('overtime');
-             } else {
-                 overtimeDisplay.classList.add('undertime');
-             }
-
-            // Format the target completion time for the German timezone
-            targetTimeDisplay.textContent = `${formatTime(targetCompletionTime, GERMAN_TIMEZONE)} Uhr`;
+            }
         }
 
         // --- Event Listeners ---
         startTimeInput.addEventListener('input', () => {
-            updateDefaultBreakTime();
-            calculateTimes();
+            updateDefaultBreakTime(); // Update break first based on new start time
+            calculateTimes(); // Then recalculate everything
         });
-        breakMinutesInput.addEventListener('input', calculateTimes);
+        breakMinutesInput.addEventListener('input', calculateTimes); // Recalculate if break changes
 
-        const intervalID = setInterval(calculateTimes, 1000);
-
+        // Initial calculation and setup on page load
         document.addEventListener('DOMContentLoaded', () => {
-             updateDefaultBreakTime();
-             calculateTimes();
+             updateDefaultBreakTime(); // Set initial break based on default start time
+             calculateTimes(); // Perform initial calculation
+             // Start the interval timer *after* the initial calculation
+             const intervalID = setInterval(calculateTimes, 1000);
+
+             // Optional: Clear interval when the page is unloaded (good practice)
+             window.addEventListener('beforeunload', () => {
+                 clearInterval(intervalID);
+             });
         });
 
     </script>
