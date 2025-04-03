@@ -146,9 +146,9 @@
         const GERMAN_TIMEZONE = 'Europe/Berlin';
         const GERMAN_LOCALE = 'de-DE';
 
-        // Function to get current time in German timezone
-        function getCurrentGermanTime() {
-            return new Date(new Date().toLocaleString(GERMAN_LOCALE, {timeZone: GERMAN_TIMEZONE}));
+        // Function to get current time (without timezone adjustment yet)
+        function getCurrentTime() {
+            return new Date();
         }
 
         // Function to format milliseconds into hh:mm or +/- hh:mm
@@ -214,7 +214,7 @@
 
         // Main calculation function
         function calculateTimes() {
-            const now = getCurrentGermanTime();
+            const now = getCurrentTime();
             currentTimeDisplay.textContent = formatTimeWithSeconds(now);
 
             // --- Get Input Values ---
